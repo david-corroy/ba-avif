@@ -1,5 +1,7 @@
 # BA AVIF Converter — AVIF + WebP pour WordPress, 100 % local et gratuit
 
+🇬🇧 **[Read this in English →](./README.en.md)**
+
 **Plugin WordPress qui convertit vos images JPEG/PNG/GIF en AVIF et WebP, encodées localement (Imagick ou GD), et les sert en cascade AVIF → WebP → original via .htaccess — sans jamais toucher à vos fichiers d'origine.** Développé par [Bernard David Corroy](https://www.david-corroy.com/) pour [BuzzArena](https://www.buzzarena.com/), où il tourne en production sur des dizaines de milliers d'images.
 
 Tout ce que les convertisseurs du marché font payer est ici gratuit : la sortie AVIF, le mode AVIF + WebP, et l'encodage local (aucune image envoyée à un serveur tiers).
