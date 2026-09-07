@@ -18,6 +18,8 @@ Otherwise               → uploads/2026/07/photo.jpg (the original)
 
 Deactivate the plugin: the rules are removed, the site serves the originals again, nothing is lost.
 
+This cascade serves all three formats from **the same URL**, which assumes intermediate caches honour `Vary: Accept`. Some CDNs do not — see `<picture>` mode below.
+
 ## Features
 
 - **New uploads converted within seconds** — a non-blocking self-call fires at the end of the upload request, with a double safety net (WP-Cron event + "recent uploads first" priority on the next batch)
@@ -28,6 +30,7 @@ Deactivate the plugin: the rules are removed, the site serves the originals agai
 - **Imagick or GD** with automatic fallback when the chosen method can't produce a format
 - **Safety rails**: copies heavier than the original are dropped (`.skip` marker), atomic writes (`.tmp` then `rename` — a truncated file can never be served), file-based lock against overlapping runs
 - **Built for shared hosting**: short batches, a 3-second breather between batches, options read straight from the database (works around APCu object caches not shared between web and CLI PHP), and a **direct server-cron trigger** (`admin-post.php?action=ba_avif_tick&key=…`) that bypasses WP-Cron when it misbehaves
+- **`<picture>` mode (optional, since 5.5.0)** — emits a distinct URL per format instead of serving everything from the original URL. Required behind a CDN that ignores `Vary: Accept` (see the limits below). The `<img>` is never modified: `alt`, `width`, `height`, `loading` and `fetchpriority` are preserved as-is, and the `srcset` is transposed size by size.
 - **Media Library column**: average size reduction per image, converted file count, "Convert now" button
 - **Complete settings**: separate AVIF and WebP quality, source extensions (.png/.gif/.webp), excluded directories, EXIF metadata, error logging
 
@@ -44,7 +47,8 @@ Deactivate the plugin: the rules are removed, the site serves the originals agai
 - **Apache or LiteSpeed** (`.htaccess` rules) — battle-tested in production on o2switch. No Nginx support at this time.
 - AVIF: Imagick compiled with libheif, **or** GD on PHP 8.1+ with libavif. The settings page shows your server's exact capabilities.
 - Animated GIFs: only the first frame is kept — leave `.gif` unchecked if you use them.
-- The `Vary: Accept` header is sent for caches/CDNs; purge your cache after activation.
+- The `Vary: Accept` header *is* sent by the `mod_headers` block, but **not every CDN honours it**. Cloudflare in particular keys its cache on `Accept-Encoding` only: it stores a single variant per URL and serves it to everyone — in both directions, a modern browser can receive the JPEG and an old one the AVIF. Measured in production on BuzzArena: `2,881 B` as AVIF against `7,371 B` as JPEG for the same thumbnail, served interchangeably. **Behind a CDN, turn on `<picture>` mode**: each format gets its own URL, leaving the cache nothing to arbitrate.
+- Purge your CDN cache after any activation or format change.
 - The plugin UI is in French. The code comments too. It runs fine on any WordPress locale.
 
 ## License

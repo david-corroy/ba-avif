@@ -18,6 +18,8 @@ Sinon                        → uploads/2026/07/photo.jpg (l'original)
 
 Désactivez le plugin : les règles sont retirées, le site sert à nouveau les originaux, rien n'est perdu.
 
+Cette cascade sert les trois formats sur **la même URL**, ce qui suppose que les caches intermédiaires respectent `Vary: Accept`. Certains CDN ne le font pas — voir le mode `<picture>` ci-dessous.
+
 ## Fonctionnalités
 
 - **Nouveaux uploads convertis dans la seconde** — auto-appel non bloquant en fin d'upload, avec double filet (WP-Cron + priorité « uploads récents » du prochain lot)
@@ -28,6 +30,7 @@ Désactivez le plugin : les règles sont retirées, le site sert à nouveau les 
 - **Imagick ou GD** avec repli automatique si la méthode choisie ne sait pas produire un format
 - **Garde-fous** : copie plus lourde que l'original supprimée (marqueur `.skip`), écriture atomique (`.tmp` puis `rename` — jamais de fichier tronqué servi), verrou fichier anti-chevauchement
 - **Pensé pour l'hébergement mutualisé** : lots courts, 3 s de pause entre les lots, lecture d'options directement en base (contourne les caches objet APCu non partagés web/CLI), et un **déclencheur cron serveur direct** (`admin-post.php?action=ba_avif_tick&key=…`) qui contourne WP-Cron quand il est capricieux
+- **Mode `<picture>` (option, depuis la 5.5.0)** — émet une URL distincte par format au lieu de tout servir depuis l'URL d'origine. Indispensable derrière un CDN qui ignore `Vary: Accept` (voir les limites plus bas). Le `<img>` n'est jamais modifié : `alt`, `width`, `height`, `loading` et `fetchpriority` sont conservés tels quels, et le `srcset` est transposé taille par taille.
 - **Colonne Médiathèque** : réduction moyenne par image, fichiers convertis, bouton « Convertir maintenant »
 - **Réglages complets** : qualité AVIF et WebP séparées, extensions sources (.png/.gif/.webp), répertoires exclus, métadonnées EXIF, journalisation
 
@@ -44,7 +47,8 @@ Désactivez le plugin : les règles sont retirées, le site sert à nouveau les 
 - **Apache ou LiteSpeed** (règles `.htaccess`) — testé en production sur o2switch. Pas de support Nginx à ce jour.
 - AVIF : Imagick compilé avec libheif, **ou** GD sous PHP 8.1+ avec libavif. La page de réglages affiche l'état exact de votre serveur.
 - GIF animés : seule la première image est conservée — laissez `.gif` décoché si vous en utilisez.
-- L'en-tête `Vary: Accept` est envoyé pour les caches/CDN ; purgez le cache après activation.
+- L'en-tête `Vary: Accept` est bien envoyé par le bloc `mod_headers`, mais **tous les CDN ne le respectent pas**. Cloudflare, notamment, ne retient que `Accept-Encoding` dans sa clé de cache : il mémorise une seule variante par URL et la sert à tous les visiteurs — dans les deux sens, un navigateur récent peut recevoir le JPEG et un navigateur ancien l'AVIF. Mesuré en production sur BuzzArena : `2 881 o` en AVIF contre `7 371 o` en JPEG pour la même vignette, servis indifféremment. **Derrière un CDN, activez le mode `<picture>`** : chaque format a sa propre URL, le cache n'a plus rien à arbitrer.
+- Purgez le cache de votre CDN après toute activation ou changement de format.
 
 ## Licence
 
