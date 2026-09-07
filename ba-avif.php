@@ -34,6 +34,7 @@ function ba_avif_settings() {
 		'keep_meta'    => 0,
 		'log_errors'   => 0,
 		'media_column' => 1,
+		'picture'      => 0,
 		'exclude'      => '',
 	) );
 }
@@ -648,6 +649,123 @@ function ba_avif_remove_htaccess() {
 }
 
 /* =========================================================================
+   SORTIE <picture> — UNE URL PAR FORMAT
+   La cascade .htaccess sert le bon format sur la meme URL : cela suppose que
+   tout cache intermediaire respecte Vary: Accept. Cloudflare ne le fait pas
+   (seul Accept-Encoding entre dans sa cle de cache), il memorise donc une
+   variante par URL et la sert a tout le monde — dans les deux sens : un
+   navigateur recent recoit le JPEG mis en cache en premier, un navigateur
+   ancien recoit l'AVIF. Donner une URL distincte a chaque format supprime
+   l'arbitrage : le navigateur choisit, le cache n'a plus rien a decider.
+   La cascade .htaccess reste en place, elle couvre les images que WordPress
+   n'emet pas lui-meme (fonds CSS, HTML ecrit en dur).
+   ====================================================================== */
+
+// URL publique -> chemin local. false si l'URL sort de wp-content.
+// uploads est teste avant wp-content : son URL en est un prefixe.
+function ba_avif_url_to_path( $url ) {
+	$url      = preg_replace( '#^https?://#', '//', wp_normalize_path( strtok( $url, '?#' ) ) );
+	$uploads  = wp_get_upload_dir();
+	$bases    = array(
+		array( $uploads['baseurl'], $uploads['basedir'] ),
+		array( content_url(), WP_CONTENT_DIR ),
+	);
+
+	foreach ( $bases as $base ) {
+		$base_url = preg_replace( '#^https?://#', '//', wp_normalize_path( $base[0] ) );
+		if ( strpos( $url, $base_url ) === 0 ) {
+			return wp_normalize_path( $base[1] ) . substr( $url, strlen( $base_url ) );
+		}
+	}
+	return false;
+}
+
+// URL de la copie miroir, ou false si le fichier n'a pas encore ete converti.
+function ba_avif_mirror_url( $source_url, $format ) {
+	$source_path = ba_avif_url_to_path( $source_url );
+	if ( ! $source_path ) {
+		return false;
+	}
+
+	$mirror = ba_avif_mirror_path( $source_path, $format );
+	if ( ! $mirror ) {
+		return false;
+	}
+
+	// Une page de listing repete souvent la meme vignette : on ne verifie
+	// l'existence d'un fichier qu'une fois par requete.
+	static $seen = array();
+	if ( ! isset( $seen[ $mirror ] ) ) {
+		$seen[ $mirror ] = is_readable( $mirror );
+	}
+	if ( ! $seen[ $mirror ] ) {
+		return false;
+	}
+
+	$prefix = wp_normalize_path( WP_CONTENT_DIR ) . '/';
+	return content_url( substr( wp_normalize_path( $mirror ), strlen( $prefix ) ) );
+}
+
+// Transpose un srcset entier. false des qu une seule variante manque : mieux
+// vaut proposer le format d origine que laisser un trou dans les tailles.
+function ba_avif_mirror_srcset( $srcset, $format ) {
+	$out = array();
+	foreach ( array_filter( array_map( 'trim', explode( ',', $srcset ) ) ) as $candidate ) {
+		$parts = preg_split( '/\s+/', $candidate, 2 );
+		$url   = ba_avif_mirror_url( $parts[0], $format );
+		if ( ! $url ) {
+			return false;
+		}
+		$out[] = isset( $parts[1] ) ? $url . ' ' . $parts[1] : $url;
+	}
+	return $out ? implode( ', ', $out ) : false;
+}
+
+// Enveloppe une balise <img> sans jamais la modifier : elle porte alt, width,
+// height, loading, fetchpriority et decoding, que le navigateur lit sur le
+// <img> meme a l'interieur d'un <picture>. Y toucher couterait du CLS.
+function ba_avif_picture( $img ) {
+	if ( empty( ba_avif_settings()['picture'] ) || is_admin() || is_feed() ) {
+		return $img;
+	}
+	if ( ! is_string( $img ) || strpos( $img, '<picture' ) !== false ) {
+		return $img;
+	}
+	if ( ! preg_match( '/\ssrc=["\']([^"\']+)["\']/i', $img, $m ) ) {
+		return $img;
+	}
+	if ( ! preg_match( '/\.(' . ba_avif_ext_pattern() . ')$/i', strtok( $m[1], '?#' ) ) ) {
+		return $img;
+	}
+
+	$srcset = preg_match( '/\ssrcset=["\']([^"\']+)["\']/i', $img, $s ) ? $s[1] : '';
+	$sizes  = preg_match( '/\ssizes=["\']([^"\']+)["\']/i', $img, $z ) ? $z[1] : '';
+
+	$sources = '';
+	foreach ( ba_avif_formats() as $format ) {
+		// ba_avif_formats renvoie toujours l'AVIF en premier : le navigateur
+		// retient la premiere <source> qu'il sait decoder.
+		$set  = $srcset ? ba_avif_mirror_srcset( $srcset, $format ) : false;
+		$attr = ( $set && $sizes ) ? ' sizes="' . esc_attr( $sizes ) . '"' : '';
+		if ( ! $set ) {
+			// Repli sur la seule URL de src, donc sans descripteur de largeur :
+			// sizes n'aurait plus rien a decrire.
+			$set = ba_avif_mirror_url( $m[1], $format );
+		}
+		if ( ! $set ) {
+			continue;
+		}
+		$sources .= '<source srcset="' . esc_attr( $set ) . '"' . $attr . ' type="image/' . $format . '" />';
+	}
+
+	return $sources ? '<picture>' . $sources . $img . '</picture>' : $img;
+}
+
+// Images du contenu (WP 6.0+) et appels directs du theme.
+add_filter( 'wp_content_img_tag', 'ba_avif_picture', 20 );
+add_filter( 'wp_get_attachment_image', 'ba_avif_picture', 20 );
+
+/* =========================================================================
    ACTIVATION / DESACTIVATION
    ====================================================================== */
 
@@ -920,6 +1038,7 @@ function ba_avif_admin_page() {
 			$s['keep_meta']    = empty( $_POST['keep_meta'] ) ? 0 : 1;
 			$s['log_errors']   = empty( $_POST['log_errors'] ) ? 0 : 1;
 			$s['media_column'] = empty( $_POST['media_column'] ) ? 0 : 1;
+			$s['picture']      = empty( $_POST['picture'] ) ? 0 : 1;
 			$s['exclude']      = sanitize_text_field( wp_unslash( $_POST['exclude'] ) );
 		} else {
 			$old_order         = $s['order'];
@@ -1269,6 +1388,8 @@ function ba_avif_admin_page() {
 					<tr><th>Mode de chargement d'image</th><td>
 						<label><input type="radio" checked disabled /> via .htaccess (recommande)</label>
 						<span class="desc">Les modes &laquo; contournement NGINX &raquo; et &laquo; Pass Thru &raquo; de Converter servent aux serveurs sans .htaccess ; o2switch (LiteSpeed) le supporte — cascade validee en live, rien a contourner.</span>
+						<label style="display:block;margin-top:10px;"><input type="checkbox" name="picture" value="1" <?php checked( 1, $settings['picture'] ); ?> /> Emettre aussi des balises <code>&lt;picture&gt;</code> (une URL par format)</label>
+						<span class="desc"><strong>A activer si le site est derriere un CDN.</strong> La cascade .htaccess sert le bon format sur la meme URL, ce qui suppose que le cache intermediaire respecte <code>Vary: Accept</code>. Cloudflare ne le fait pas : il memorise une seule variante par URL et la sert a tous les visiteurs — un navigateur recent peut donc recevoir le JPEG, et un navigateur ancien l'AVIF. Avec <code>&lt;picture&gt;</code>, chaque format a sa propre URL : le cache n'a plus rien a arbitrer. La cascade .htaccess reste active pour les images que WordPress n'emet pas lui-meme (fonds CSS, HTML ecrit en dur).</span>
 					</td></tr>
 					<tr><th>Fonctions supplementaires</th><td>
 						<label><input type="checkbox" name="auto_upload" value="1" <?php checked( 1, $settings['auto_upload'] ); ?> /> Conversion automatique des nouvelles images envoyees dans la Mediatheque</label><br />
