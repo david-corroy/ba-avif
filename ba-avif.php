@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: BA AVIF Converter
- * Description: Copies AVIF et/ou WebP locales (Imagick ou GD) des images JPEG/PNG dans un miroir uploads-avifc/, servies par negociation .htaccess (cascade AVIF -> WebP -> original). Formats de sortie AVIF / WebP / AVIF + WebP, repertoires uploads/themes/plugins, scan disque complet, calcul automatique au chargement, conversion en arriere-plan, reglages complets, reconversion forcee, pause, colonne Mediatheque.
- * Version: 5.4.0
+ * Description: Copies AVIF et/ou WebP locales (Imagick ou GD) des images JPEG/PNG dans un miroir uploads-avifc/, servies par negociation .htaccess (cascade AVIF -> WebP -> original). Formats de sortie AVIF / WebP / AVIF + WebP, repertoires uploads/themes/plugins, scan disque complet, calcul automatique au chargement, conversion en arriere-plan, reglages complets, reconversion forcee, pause, colonne Mediatheque. Mode <picture> optionnel : une URL distincte par format, pour les CDN qui ignorent Vary: Accept.
+ * Version: 5.5.0
  * Author: Buzzarena
  */
 
